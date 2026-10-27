@@ -1,0 +1,1187 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TaxShield – Pre-auditoría fiscal CFDI 4.0</title>
+
+  <!-- ===== CDN: Tailwind CSS, JSZip y jsPDF (se requiere internet para cargarlos) ===== -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://unpkg.com/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+
+  <style>
+    /* Pequeños ajustes visuales propios (todo lo demás es Tailwind) */
+    body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    .zona-drag { border: 2px dashed #94a3b8; transition: all .15s ease; }
+    .zona-drag.activa { border-color: #2563eb; background-color: #eff6ff; }
+    .fila-detalle td { padding: 0; }
+    details summary::-webkit-details-marker { display: none; }
+  </style>
+</head>
+
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+
+  <!-- ================= ENCABEZADO ================= -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-10">
+    <div class="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+      <div>
+        <h1 class="text-xl font-bold text-slate-900">🛡️ TaxShield</h1>
+        <p class="text-xs text-slate-500">Pre-auditoría fiscal de facturas CFDI 4.0</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <!-- Aviso de privacidad siempre visible -->
+        <span class="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-3 py-1">
+          🔒 Tus archivos nunca salen de tu navegador
+        </span>
+        <button id="btnBorrar" class="text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-full px-3 py-1 hover:bg-red-100">
+          Borrar todos los datos
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-4 py-6 w-full flex-1 space-y-8">
+
+    <!-- ================= PASO 1: CONFIGURACIÓN ================= -->
+    <section class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+      <h2 class="font-semibold text-slate-900 mb-4">1️⃣ Configuración</h2>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <!-- RFC del contribuyente -->
+        <div>
+          <label for="rfcContribuyente" class="block text-sm font-medium text-slate-700 mb-1">
+            RFC del contribuyente (receptor esperado)
+          </label>
+          <input id="rfcContribuyente" type="text" maxlength="13" placeholder="Ej. MORA010101RMA"
+                 class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm uppercase focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <p class="text-xs text-slate-400 mt-1">Se usa para detectar facturas emitidas a otro RFC.</p>
+        </div>
+
+        <!-- Carga de la lista 69-B -->
+        <div>
+          <span class="block text-sm font-medium text-slate-700 mb-1">Lista 69-B del SAT (CSV)</span>
+          <div class="flex flex-wrap items-center gap-2">
+            <input id="inputLista69" type="file" accept=".csv,text/csv" class="hidden" />
+            <button id="btnLista69" class="text-sm bg-slate-900 text-white rounded-lg px-3 py-2 hover:bg-slate-700">
+              Cargar CSV 69-B
+            </button>
+            <button id="btnListaEjemplo" class="text-sm bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-200">
+              Usar lista de ejemplo
+            </button>
+          </div>
+          <p id="lista69Estado" class="text-xs text-slate-500 mt-2">No se ha cargado ninguna lista.</p>
+          <p id="advertenciaLista" class="hidden text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 mt-1">
+            ⚠️ La lista tiene más de 30 días. Descarga la versión más reciente del SAT.
+          </p>
+        </div>
+      </div>
+
+      <!-- IA opcional (Gemini) -->
+      <div class="mt-5 pt-4 border-t border-slate-100">
+        <details class="text-sm">
+          <summary class="cursor-pointer font-medium text-slate-700 select-none">🤖 Clasificación con IA (opcional – Gemini)</summary>
+          <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label for="iaKey" class="block text-xs font-medium text-slate-600 mb-1">API key de Gemini</label>
+              <div class="flex gap-2">
+                <input id="iaKey" type="password" placeholder="Pega tu API key aquí"
+                       class="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <button id="btnGuardarKey" class="text-sm bg-blue-600 text-white rounded-lg px-3 py-2 hover:bg-blue-500">Guardar</button>
+              </div>
+              <p class="text-xs text-slate-400 mt-1">Se guarda solo en <code>sessionStorage</code> y nunca se envía a otro servidor que no sea Google.</p>
+            </div>
+            <div class="flex items-end gap-3 pb-1">
+              <label class="inline-flex items-center gap-2 text-sm text-slate-700">
+                <input id="iaSoloDudosos" type="checkbox" checked class="rounded border-slate-300" />
+                Usar IA solo en casos dudosos
+              </label>
+            </div>
+          </div>
+          <p id="iaEstado" class="text-xs text-slate-500 mt-2">Sin API key: la app funciona completa sin IA.</p>
+        </details>
+      </div>
+    </section>
+
+    <!-- ================= PASO 2: CARGA DE FACTURAS ================= -->
+    <section class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+      <h2 class="font-semibold text-slate-900 mb-4">2️⃣ Carga de facturas (XML o ZIP)</h2>
+
+      <div id="zonaDrop" class="zona-drag rounded-2xl bg-slate-50 p-8 text-center cursor-pointer">
+        <p class="text-3xl mb-2">📄</p>
+        <p class="text-sm font-medium text-slate-700">Arrastra aquí tus archivos <code>.xml</code> o <code>.zip</code></p>
+        <p class="text-xs text-slate-400 mt-1">o haz clic para seleccionarlos (puedes cargar varios a la vez)</p>
+        <input id="inputArchivos" type="file" accept=".xml,.zip" multiple class="hidden" />
+      </div>
+
+      <div class="flex flex-wrap items-center gap-3 mt-4">
+        <button id="btnEjemplo" class="text-sm bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-500">
+          🧪 Probar con ejemplo
+        </button>
+        <p id="contadorUso" class="text-xs text-slate-500 ml-auto"></p>
+      </div>
+    </section>
+
+    <!-- ================= RESUMEN ================= -->
+    <section id="seccionResumen" class="hidden">
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div class="bg-white rounded-2xl border border-slate-200 p-4">
+          <p class="text-xs text-slate-500">Facturas procesadas</p>
+          <p id="cardTotal" class="text-2xl font-bold text-slate-900">0</p>
+        </div>
+        <div class="bg-white rounded-2xl border border-red-200 p-4">
+          <p class="text-xs text-red-600">Monto en riesgo</p>
+          <p id="cardRiesgo" class="text-2xl font-bold text-red-600">$0.00</p>
+        </div>
+        <div class="bg-white rounded-2xl border border-green-200 p-4">
+          <p class="text-xs text-green-700">Monto deducible</p>
+          <p id="cardDeducible" class="text-2xl font-bold text-green-700">$0.00</p>
+        </div>
+        <div class="bg-white rounded-2xl border border-amber-200 p-4">
+          <p class="text-xs text-amber-700">Alertas 69-B</p>
+          <p id="card69B" class="text-2xl font-bold text-amber-700">0</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= RESULTADOS ================= -->
+    <section id="seccionResultados" class="hidden space-y-4">
+      <div class="flex flex-wrap items-center gap-3">
+        <h2 class="font-semibold text-slate-900 mr-auto">3️⃣ Resultados</h2>
+        <select id="filtroClas" class="text-sm rounded-lg border border-slate-300 px-2 py-1.5">
+          <option value="todas">Todas las clasificaciones</option>
+        </select>
+        <input id="filtroTexto" type="text" placeholder="Buscar RFC, emisor, UUID…"
+               class="text-sm rounded-lg border border-slate-300 px-2 py-1.5 w-52" />
+        <button id="btnCSV" class="text-sm bg-slate-100 border border-slate-300 rounded-lg px-3 py-1.5 hover:bg-slate-200">Exportar CSV</button>
+        <button id="btnPDF" class="text-sm bg-slate-900 text-white rounded-lg px-3 py-1.5 hover:bg-slate-700">Descargar reporte PDF</button>
+      </div>
+
+      <div class="overflow-x-auto bg-white rounded-2xl border border-slate-200">
+        <table class="min-w-full text-sm">
+          <thead class="bg-slate-100 text-slate-600 text-xs uppercase">
+            <tr>
+              <th class="px-3 py-2 text-left cursor-pointer" data-campo="fecha">Fecha ⇅</th>
+              <th class="px-3 py-2 text-left cursor-pointer" data-campo="emisor">Emisor ⇅</th>
+              <th class="px-3 py-2 text-left cursor-pointer" data-campo="receptor">Receptor ⇅</th>
+              <th class="px-3 py-2 text-right cursor-pointer" data-campo="total">Total ⇅</th>
+              <th class="px-3 py-2 text-left cursor-pointer" data-campo="clasificacion">Clasificación ⇅</th>
+              <th class="px-3 py-2 text-left cursor-pointer" data-campo="estatus69B">69-B ⇅</th>
+              <th class="px-3 py-2"></th>
+            </tr>
+          </thead>
+          <tbody id="cuerpoTabla"></tbody>
+        </table>
+        <p id="tablaVacia" class="text-sm text-slate-400 text-center py-6 hidden">Sin facturas que coincidan con el filtro.</p>
+      </div>
+
+      <!-- XML inválidos: se listan sin detener el proceso -->
+      <div id="cajaErrores" class="hidden bg-red-50 border border-red-200 rounded-2xl p-4">
+        <h3 class="text-sm font-semibold text-red-800 mb-2">Archivos con error (no se procesaron)</h3>
+        <ul id="listaErrores" class="text-xs text-red-700 list-disc list-inside space-y-1"></ul>
+      </div>
+    </section>
+  </main>
+
+  <!-- ================= PIE ================= -->
+  <footer class="border-t border-slate-200 bg-white mt-8">
+    <div class="max-w-6xl mx-auto px-4 py-4 text-center">
+      <p class="text-xs text-slate-500">Pre-auditoría orientativa. <strong>No sustituye la opinión de un contador público.</strong></p>
+      <p class="text-xs text-slate-400 mt-1">TaxShield · CFDI 4.0 · Procesamiento 100% local en tu navegador</p>
+    </div>
+  </footer>
+
+<script>
+/* =====================================================================
+   TaxShield – Pre-auditoría fiscal CFDI 4.0
+   Todo se ejecuta en el navegador: sin backend, sin servidor.
+   Módulos: parser · validador69B · motorReglas · ia · reportes · ui
+   ===================================================================== */
+
+/* =====================================================================
+   CONFIGURACIÓN EDITABLE
+   Modifica estas reglas y la tabla de prefijos ClaveProdServ a tu criterio.
+   ===================================================================== */
+const CONFIG = {
+  reglas: {
+    montoMaximoEfectivo: 2000,        // art. 31 fr. VIII LISR: tope para pagos en efectivo
+    usosDeducibleAutorizado: ["G01", "G02", "G03"],
+    usosDeduccionPersonal: ["D01","D02","D03","D04","D05","D06","D07","D08","D09","D10"],
+    usosNoDeducible: ["S01"],
+    diasAdvertenciaLista: 30,         // antigüedad máx. aceptable de la lista 69-B
+    limiteConciliacionesGratis: 3     // contador visual del demo
+  },
+  claveProdServ: {
+    _descripcion: "Prefijos ClaveProdServ usados como DESEMPATE cuando ninguna regla fiscal aplica",
+    personal: ["5110", "5120", "9010"],  // p. ej. 5110 vestido/calzado, 5120 joyería, 9010 servicios personales
+    riesgo:   ["5045"]                   // ejemplo editable: artículos prohibidos o de alto riesgo
+  },
+  ia: {
+    modelo: "gemini-2.5-flash",
+    endpoint: "https://generativelanguage.googleapis.com/v1beta/models/",
+    temperatura: 0.1
+  }
+};
+
+/* =====================================================================
+   ESTADO GLOBAL
+   ===================================================================== */
+const estado = {
+  facturas: [],        // facturas procesadas y clasificadas
+  errores: [],         // archivos que no se pudieron procesar
+  uuids: new Set(),    // UUIDs ya vistos (para detectar duplicados)
+  rfcContribuyente: "",
+  orden: { campo: "fecha", dir: 1 }
+};
+
+// Etiquetas y colores (semáforo) de cada clasificación
+const CLASIFICACIONES = {
+  autorizado:  { etiqueta: "Deducible Autorizado",    color: "green" },
+  personal:    { etiqueta: "Deducción Personal",      color: "blue"  },
+  riesgo:      { etiqueta: "No Deducible / Riesgo",   color: "red"   },
+  revisar:     { etiqueta: "Revisar",                 color: "yellow"},
+  informativo: { etiqueta: "Informativo (sin gasto)", color: "gray"  }
+};
+const ESTADOS_69B = {
+  LIMPIO:      { etiqueta: "LIMPIO",           color: "green" },
+  LIMPIO_HIST: { etiqueta: "LIMPIO histórico", color: "teal"  },
+  ALERTA:      { etiqueta: "ALERTA",           color: "yellow"},
+  CRITICO:     { etiqueta: "CRÍTICO",          color: "red"   }
+};
+
+/* =====================================================================
+   MÓDULO: ALMACÉN (IndexedDB para la lista 69-B)
+   ===================================================================== */
+const almacen = {
+  nombre: "taxshield_db",
+  version: 1,
+  tienda: "lista69",
+  db: null,
+
+  abrir() {
+    return new Promise((res, rej) => {
+      const req = indexedDB.open(this.nombre, this.version);
+      req.onupgradeneeded = e => e.target.result.createObjectStore(this.tienda, { keyPath: "id" });
+      req.onsuccess = e => { this.db = e.target.result; res(); };
+      req.onerror = () => rej(req.error);
+    });
+  },
+
+  guardarLista(fechaCarga, mapa) {
+    return new Promise((res, rej) => {
+      // Se serializa el Map a [ [rfc, datos], ... ] para guardarlo con structured clone
+      const tx = this.db.transaction(this.tienda, "readwrite");
+      tx.objectStore(this.tienda).put({ id: "actual", fechaCarga, datos: [...mapa] });
+      tx.oncomplete = () => res();
+      tx.onerror = () => rej(tx.error);
+    });
+  },
+
+  cargarLista() {
+    return new Promise((res) => {
+      if (!this.db) return res(null);
+      const req = this.db.transaction(this.tienda).objectStore(this.tienda).get("actual");
+      req.onsuccess = () => res(req.result || null);
+      req.onerror = () => res(null);
+    });
+  },
+
+  borrarTodo() {
+    return new Promise((res) => {
+      if (this.db) { this.db.close(); this.db = null; }
+      const req = indexedDB.deleteDatabase(this.nombre);
+      req.onsuccess = req.onerror = req.onblocked = () => res(); // aunque haya error, seguimos
+    });
+  }
+};
+
+/* =====================================================================
+   MÓDULO: CONTADOR DE USO (localStorage, solo visual, sin cobro)
+   3 conciliaciones gratuitas al mes.
+   ===================================================================== */
+const contador = {
+  clave: "taxshield_uso",
+  obtener() {
+    const mesActual = new Date().toISOString().slice(0, 7); // "AAAA-MM"
+    let d = JSON.parse(localStorage.getItem(this.clave) || "null");
+    if (!d || d.mes !== mesActual) d = { mes: mesActual, usos: 0 };
+    return d;
+  },
+  registrar() {
+    const d = this.obtener();
+    d.usos += 1;
+    localStorage.setItem(this.clave, JSON.stringify(d));
+    return d;
+  },
+  restablecer() { localStorage.removeItem(this.clave); },
+  pintar() {
+    const d = this.obtener();
+    const tope = CONFIG.reglas.limiteConciliacionesGratis;
+    const el = document.getElementById("contadorUso");
+    if (d.usos > tope) {
+      el.innerHTML = `<span class="text-amber-600 font-medium">Has usado ${d.usos} de ${tope} conciliaciones gratuitas este mes (demo sin cobro).</span>`;
+    } else {
+      el.textContent = `Conciliaciones gratuitas este mes: ${d.usos} de ${tope} usadas`;
+    }
+  }
+};
+
+/* =====================================================================
+   MÓDULO: PARSER (extracción de datos del CFDI 4.0)
+   Usa getElementsByTagNameNS('*', tag) para tolerar cualquier prefijo
+   de namespace (cfdi:, tfd:, etc.).
+   ===================================================================== */
+const parser = {
+  // Regex oficial de RFC (persona física o moral)
+  RE_RFC: /^[A-ZÑ&]{3,4}\d{6}[A-Z\d]{3}$/,
+
+  // Busca el primer elemento con ese nombre local, en CUALQUIER prefijo
+  el(doc, nombreLocal) { return doc.getElementsByTagNameNS("*", nombreLocal)[0] || null; },
+  attr(el, nombre) { return el ? (el.getAttribute(nombre) || "") : ""; },
+  num(v) { const n = parseFloat(v); return isNaN(n) ? 0 : n; },
+
+  extraer(xmlTexto, nombreArchivo) {
+    try {
+      const doc = new DOMParser().parseFromString(xmlTexto, "application/xml");
+      if (doc.getElementsByTagName("parsererror").length) throw new Error("XML mal formado");
+
+      const comprobante = this.el(doc, "Comprobante");
+      if (!comprobante) throw new Error("No se encontró el nodo Comprobante");
+
+      const emisor = this.el(doc, "Emisor");
+      const receptor = this.el(doc, "Receptor");
+      const timbre = this.el(doc, "TimbreFiscalDigital");
+
+      // Conceptos
+      const conceptos = [...doc.getElementsByTagNameNS("*", "Concepto")].map(c => ({
+        claveProdServ: this.attr(c, "ClaveProdServ"),
+        descripcion: this.attr(c, "Descripcion"),
+        importe: this.num(this.attr(c, "Importe")),
+        objetoImp: this.attr(c, "ObjetoImp")
+      }));
+
+      // Traslados y retenciones (cabecera y a nivel concepto)
+      const traslados = [...doc.getElementsByTagNameNS("*", "Traslado")].map(t => ({
+        impuesto: this.attr(t, "Impuesto"),
+        tasaOCuota: this.attr(t, "TasaOCuota"),
+        importe: this.num(this.attr(t, "Importe"))
+      }));
+      const retenciones = [...doc.getElementsByTagNameNS("*", "Retencion")].map(r => ({
+        impuesto: this.attr(r, "Impuesto"),
+        tasaOCuota: this.attr(r, "TasaOCuota"),
+        importe: this.num(this.attr(r, "Importe"))
+      }));
+
+      // UUIDs relacionados (para detectar complemento de pago)
+      const relacionados = [...doc.getElementsByTagNameNS("*", "CfdiRelacionado")].map(r => this.attr(r, "UUID"));
+
+      const cfdi = {
+        nombreArchivo,
+        version: this.attr(comprobante, "Version"),
+        fecha: this.attr(comprobante, "Fecha"),
+        tipoDeComprobante: this.attr(comprobante, "TipoDeComprobante"),
+        subTotal: this.num(this.attr(comprobante, "SubTotal")),
+        total: this.num(this.attr(comprobante, "Total")),
+        moneda: this.attr(comprobante, "Moneda") || "MXN",
+        formaPago: this.attr(comprobante, "FormaPago"),
+        metodoPago: this.attr(comprobante, "MetodoPago"),
+        emisor: {
+          rfc: this.attr(emisor, "Rfc").toUpperCase(),
+          nombre: this.attr(emisor, "Nombre"),
+          regimenFiscal: this.attr(emisor, "RegimenFiscal")
+        },
+        receptor: {
+          rfc: this.attr(receptor, "Rfc").toUpperCase(),
+          nombre: this.attr(receptor, "Nombre"),
+          usoCFDI: this.attr(receptor, "UsoCFDI").toUpperCase(),
+          regimenFiscal: this.attr(receptor, "RegimenFiscalReceptor")
+        },
+        conceptos, traslados, retenciones,
+        uuid: this.attr(timbre, "UUID").toUpperCase(),
+        fechaTimbrado: this.attr(timbre, "FechaTimbrado"),
+        relacionados
+      };
+
+      cfdi.validaciones = this.validar(cfdi);
+      return { ok: true, cfdi };
+    } catch (e) {
+      return { ok: false, nombreArchivo, error: e.message };
+    }
+  },
+
+  // Validaciones por CFDI (no detienen el proceso; solo marcan)
+  validar(c) {
+    const val = [];
+    val.push({ clave: "version", ok: c.version === "4.0",
+      texto: c.version === "4.0" ? "Versión 4.0 ✔" : `Versión "${c.version}" — se esperaba 4.0` });
+    val.push({ clave: "uuid", ok: !!c.uuid,
+      texto: c.uuid ? "UUID presente ✔" : "Sin TimbreFiscalDigital / UUID" });
+    val.push({ clave: "uuid_dup", ok: !estado.uuids.has(c.uuid) || !c.uuid,
+      texto: estado.uuids.has(c.uuid) ? "UUID DUPLICADO (ya cargado)" : "UUID no duplicado ✔" });
+    val.push({ clave: "rfc_emisor", ok: this.RE_RFC.test(c.emisor.rfc),
+      texto: this.RE_RFC.test(c.emisor.rfc) ? `RFC emisor ${c.emisor.rfc} válido ✔` : `RFC emisor "${c.emisor.rfc}" inválido` });
+    val.push({ clave: "rfc_receptor", ok: this.RE_RFC.test(c.receptor.rfc),
+      texto: this.RE_RFC.test(c.receptor.rfc) ? `RFC receptor ${c.receptor.rfc} válido ✔` : `RFC receptor "${c.receptor.rfc}" inválido` });
+    return val;
+  }
+};
+
+/* =====================================================================
+   MÓDULO: VALIDADOR 69-B (lista de contribuyentes del SAT)
+   ===================================================================== */
+const validador69B = {
+  mapa: new Map(),          // Map<RFC, {situacion, fPresuntos, fDefinitivos, fDesvirtuados, fSentencia}>
+  fechaCarga: null,         // Date
+
+  // Normaliza texto: sin acentos, minúsculas, sin espacios extra
+  norm(s) { return (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim(); },
+
+  // Parsea una fecha "dd/mm/aaaa" o "aaaa-mm-dd"; null si no se entiende
+  parseFecha(s) {
+    if (!s) return null;
+    s = String(s).trim().replace(/["']/g, "");
+    let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (m) return new Date(+m[3], +m[2] - 1, +m[1]);
+    m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+    const d = new Date(s);
+    return isNaN(d) ? null : d;
+  },
+
+  // Parsea el CSV completo a un Map<RFC, datos>
+  parsearCSV(texto) {
+    // Parser de CSV tolerante: comillas, comas dentro de comillas, \r\n y BOM
+    texto = texto.replace(/^﻿/, "");
+    const filas = [];
+    let campo = "", fila = [], enComillas = false;
+    for (let i = 0; i < texto.length; i++) {
+      const c = texto[i];
+      if (enComillas) {
+        if (c === '"') {
+          if (texto[i + 1] === '"') { campo += '"'; i++; } else enComillas = false;
+        } else campo += c;
+      } else if (c === '"') enComillas = true;
+      else if (c === ",") { fila.push(campo); campo = ""; }
+      else if (c === "\n" || c === "\r") {
+        if (c === "\r" && texto[i + 1] === "\n") i++;
+        fila.push(campo); campo = "";
+        if (fila.length > 1 || fila[0] !== "") filas.push(fila);
+        fila = [];
+      } else campo += c;
+    }
+    if (campo !== "" || fila.length) { fila.push(campo); if (fila.length > 1 || fila[0] !== "") filas.push(fila); }
+    if (filas.length < 2) throw new Error("El CSV parece vacío o sin encabezados");
+
+    // Localiza columnas por nombre (tolerante a acentos, mayúsculas y comillas)
+    const h = filas[0].map(x => this.norm(x));
+    const idxRfc  = h.findIndex(x => x.includes("rfc"));
+    const idxSit  = h.findIndex(x => x.includes("situacion"));
+    // Prefiere columnas de "Publicación" sobre las de "oficio" (que también
+    // contienen la palabra clave en el CSV real del SAT)
+    const colPub = palabra => {
+      const i = h.findIndex(x => x.includes("publicacion") && x.includes(palabra));
+      return i !== -1 ? i : h.findIndex(x => x.includes(palabra));
+    };
+    const idxPres = colPub("presuntos");
+    const idxDef  = colPub("definitivos");
+    const idxDesv = colPub("desvirtuados");
+    const idxSent = colPub("sentencia");
+    if (idxRfc === -1 || idxSit === -1) throw new Error("No se encontraron las columnas RFC / Situación del contribuyente");
+
+    const mapa = new Map();
+    for (let i = 1; i < filas.length; i++) {
+      const f = filas[i];
+      const rfc = (f[idxRfc] || "").toUpperCase().trim();
+      if (!rfc) continue;
+      mapa.set(rfc, {
+        situacion: (f[idxSit] || "").trim(),
+        fPresuntos:    idxPres >= 0 ? this.parseFecha(f[idxPres]) : null,
+        fDefinitivos:  idxDef  >= 0 ? this.parseFecha(f[idxDef])  : null,
+        fDesvirtuados: idxDesv >= 0 ? this.parseFecha(f[idxDesv]) : null,
+        fSentencia:    idxSent >= 0 ? this.parseFecha(f[idxSent]) : null
+      });
+    }
+    return mapa;
+  },
+
+  // Guarda el CSV en IndexedDB con su fecha de carga
+  async cargarDesdeTexto(texto) {
+    this.mapa = this.parsearCSV(texto);
+    this.fechaCarga = new Date();
+    await almacen.guardarLista(this.fechaCarga.toISOString(), this.mapa);
+    return this.mapa.size;
+  },
+
+  // Devuelve el estatus del emisor para una factura
+  estatus(rfcEmisor, fechaCfdi) {
+    const r = this.mapa.get((rfcEmisor || "").toUpperCase().trim());
+    if (!r) return { clave: "LIMPIO", detalle: "El RFC del emisor no aparece en la lista 69-B cargada." };
+
+    const sit = this.norm(r.situacion);
+    const fC = fechaCfdi ? new Date(fechaCfdi) : null;
+
+    if (sit.includes("definitivo")) {
+      // Regla: CFDI posterior a la publicación como Definitivo → CRÍTICO
+      if (fC && r.fDefinitivos && fC.getTime() >= r.fDefinitivos.getTime()) {
+        return { clave: "CRITICO", detalle: `Emisor publicado como Definitivo el ${r.fDefinitivos.toLocaleDateString("es-MX")} y la factura es posterior.` };
+      }
+      return { clave: "ALERTA", detalle: "El emisor figura como Definitivo; la factura es anterior a la publicación (posible presunción vigente al emitirse)." };
+    }
+    if (sit.includes("presunto")) {
+      return { clave: "ALERTA", detalle: "El emisor figura como Presunto en la lista 69-B." };
+    }
+    if (sit.includes("desvirtuado")) {
+      return { clave: "LIMPIO_HIST", detalle: "El emisor fue desvirtuado; el riesgo es histórico." };
+    }
+    if (sit.includes("sentencia")) {
+      return { clave: "LIMPIO_HIST", detalle: "El emisor cuenta con sentencia favorable; el riesgo es histórico." };
+    }
+    return { clave: "ALERTA", detalle: `Situación no reconocida en el CSV: "${r.situacion}".` };
+  },
+
+  async restaurar() {
+    const rec = await almacen.cargarLista();
+    if (rec) {
+      this.mapa = new Map(rec.datos);
+      // Las fechas se serializaron como ISO; las reconstruimos
+      for (const d of this.mapa.values()) {
+        ["fPresuntos", "fDefinitivos", "fDesvirtuados", "fSentencia"].forEach(k => { if (d[k]) d[k] = new Date(d[k]); });
+      }
+      this.fechaCarga = new Date(rec.fechaCarga);
+    }
+  }
+};
+
+/* =====================================================================
+   MÓDULO: MOTOR DE REGLAS (deducibilidad determinística)
+   Devuelve { clave, motivos }. El ORDEN de las reglas es importante:
+   las primeras tienen prioridad sobre las últimas.
+   ===================================================================== */
+const motorReglas = {
+  clasificar(cfdi, ctx) {
+    // ctx = { rfcContribuyente, pagado, estatus69B }
+    const R = CONFIG.reglas;
+    const motivos = [];
+    const uso = (cfdi.receptor.usoCFDI || "").toUpperCase();
+    const metodo = (cfdi.metodoPago || "").toUpperCase();
+    const esPago = cfdi.tipoDeComprobante === "P";
+
+    // Regla 1: emisor en lista 69-B (Definitivo o Presunto) → riesgo
+    if (ctx.estatus69B.clave === "CRITICO") {
+      motivos.push("El emisor está publicado como Definitivo en la lista 69-B y la factura es posterior.");
+      return { clave: "riesgo", motivos };
+    }
+    if (ctx.estatus69B.clave === "ALERTA") {
+      motivos.push("El emisor figura en la lista 69-B (Presunto o Definitivo previo a la factura).");
+      return { clave: "riesgo", motivos };
+    }
+
+    // Regla 2: comprobante tipo P → informativo, no es gasto
+    if (esPago) {
+      motivos.push("Comprobante tipo P (complemento de pago): documento informativo, no representa un gasto por sí mismo.");
+      return { clave: "informativo", motivos };
+    }
+
+    // Regla 3: UsoCFDI S01 → sin efectos fiscales
+    if (R.usosNoDeducible.includes(uso)) {
+      motivos.push(`UsoCFDI ${uso} "Sin efectos fiscales": no deducible.`);
+      return { clave: "riesgo", motivos };
+    }
+
+    // Regla 4: RFC receptor distinto al contribuyente → riesgo
+    if (ctx.rfcContribuyente && cfdi.receptor.rfc !== ctx.rfcContribuyente) {
+      motivos.push(`RFC receptor (${cfdi.receptor.rfc}) distinto al RFC del contribuyente (${ctx.rfcContribuyente}).`);
+      return { clave: "riesgo", motivos };
+    }
+
+    // Regla 5: PPD sin complemento de pago cargado → revisar
+    if (metodo === "PPD" && !ctx.pagado) {
+      motivos.push("Método de pago PPD sin complemento de pago cargado: se deduce hasta que se efectúa el pago (art. 31 LISR).");
+      return { clave: "revisar", motivos };
+    }
+
+    // Regla 6: pago en efectivo que supera el tope → no deducible
+    if (cfdi.formaPago === "01" && cfdi.total > R.montoMaximoEfectivo) {
+      motivos.push(`Pago en efectivo por ${fmt(cfdi.total)} supera el tope de ${fmt(R.montoMaximoEfectivo)} (art. 31 fr. VIII LISR).`);
+      return { clave: "riesgo", motivos };
+    }
+
+    // Regla 7: gastos de actividad empresarial
+    if (R.usosDeducibleAutorizado.includes(uso)) {
+      motivos.push(`UsoCFDI ${uso}: gasto deducible para actividades empresariales.`);
+      return { clave: "autorizado", motivos };
+    }
+
+    // Regla 8: deducciones personales
+    if (R.usosDeduccionPersonal.includes(uso)) {
+      motivos.push(`UsoCFDI ${uso}: deducción personal (sujeta a tope según régimen).`);
+      return { clave: "personal", motivos };
+    }
+
+    // Regla 9: desempate por prefijo de ClaveProdServ (tabla editable en CONFIG)
+    const pref = ((cfdi.conceptos[0] && cfdi.conceptos[0].claveProdServ) || "").slice(0, 4);
+    if (pref) {
+      if (CONFIG.claveProdServ.personal.some(p => pref.startsWith(p))) {
+        motivos.push(`ClaveProdServ ${pref}: el catálogo sugiere gasto personal.`);
+        return { clave: "personal", motivos };
+      }
+      if (CONFIG.claveProdServ.riesgo.some(p => pref.startsWith(p))) {
+        motivos.push(`ClaveProdServ ${pref}: catalogada como de alto riesgo en CONFIG.`);
+        return { clave: "riesgo", motivos };
+      }
+    }
+
+    // Sin regla aplicable
+    motivos.push("Ninguna regla determinística aplica; se requiere criterio del contador.");
+    return { clave: "revisar", motivos };
+  }
+};
+
+/* =====================================================================
+   MÓDULO: IA (Gemini) — OPCIONAL
+   - La API key se guarda SOLO en sessionStorage.
+   - Se envía ÚNICAMENTE la Descripcion del concepto (nunca RFC, nombres
+   ni montos). Sin key, la app funciona completa.
+   ===================================================================== */
+const ia = {
+  claveStorage: "taxshield_gemini_key",
+  maxLlamadas: 15, // tope de seguridad por conciliación
+
+  getKey() { return sessionStorage.getItem(this.claveStorage) || ""; },
+  setKey(k) {
+    if (k.trim()) sessionStorage.setItem(this.claveStorage, k.trim());
+    else sessionStorage.removeItem(this.claveStorage);
+  },
+
+  // Clasifica UNA descripción de concepto. Devuelve {data} o {error}; null si no hay key.
+  async clasificarConcepto(descripcion) {
+    const key = this.getKey();
+    if (!key) return null;
+
+    const prompt =
+      'Eres un asistente fiscal mexicano experto en deducibilidad del Impuesto Sobre la Renta. ' +
+      "Clasifica el siguiente concepto de una factura (CFDI) en EXACTAMENTE una de estas categorías: " +
+      '"Deducible Autorizado" (gasto necesario para la actividad empresarial), ' +
+      '"Deducción Personal" (gasto personal del contribuyente), ' +
+      '"No Deducible / Riesgo" (prohibido o de alto riesgo fiscal), ' +
+      '"Revisar" (caso dudoso que requiere criterio de un contador). ' +
+      "Responde ÚNICAMENTE con un JSON válido con esta forma exacta, sin texto adicional ni markdown:\n" +
+      '{"clasificacion":"...","fundamento":"artículo o fundamento fiscal mexicano breve","confianza":0.0,"justificacion":"una oración"}\n' +
+      `Concepto: "${descripcion}"`;
+
+    try {
+      const url = `${CONFIG.ia.endpoint}${CONFIG.ia.modelo}:generateContent?key=${encodeURIComponent(key)}`;
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: CONFIG.ia.temperatura, responseMimeType: "application/json" }
+        })
+      });
+      if (!resp.ok) {
+        const detalle = await resp.text().catch(() => "");
+        throw new Error(`HTTP ${resp.status}${detalle ? " – " + detalle.slice(0, 120) : ""}`);
+      }
+      const data = await resp.json();
+      const texto = (data.candidates && data.candidates[0] && data.candidates[0].content.parts[0].text || "")
+        .replace(/```json|```/g, "").trim();
+      const json = JSON.parse(texto);
+      if (!json.clasificacion) throw new Error("Respuesta sin campo 'clasificacion'");
+      return { data: json };
+    } catch (e) {
+      return { error: e.message }; // nunca rompemos la app por un fallo de IA
+    }
+  },
+
+  // Aplica la IA a las facturas elegidas (según el toggle) después de las reglas
+  async aplicar() {
+    if (!this.getKey()) return;
+    const soloDudosos = document.getElementById("iaSoloDudosos").checked;
+    const elegidas = estado.facturas.filter(f =>
+      (f.cfdi.conceptos[0] && f.cfdi.conceptos[0].descripcion) &&
+      (!soloDudosos || f.clasificacion === "revisar")
+    ).slice(0, this.maxLlamadas);
+
+    pintarIAEstado(`IA activa (${elegidas.length} concepto${elegidas.length === 1 ? "" : "s"} por clasificar${soloDudosos ? ", solo dudosos" : ""})…`);
+    for (const f of elegidas) {
+      const r = await this.clasificarConcepto(f.cfdi.conceptos[0].descripcion);
+      f.ia = r;
+      if (r && r.data) {
+        // Normaliza la clasificación sugerida a nuestras claves
+        const s = String(r.data.clasificacion).toLowerCase();
+        if (s.includes("personal")) f.ia.claveSugerida = "personal";
+        else if (s.includes("riesgo") || s.includes("no deducible")) f.ia.claveSugerida = "riesgo";
+        else if (s.includes("autorizado")) f.ia.claveSugerida = "autorizado";
+        else f.ia.claveSugerida = "revisar";
+      }
+    }
+    pintarIAEstado();
+  }
+};
+
+/* =====================================================================
+   XML CFDI 4.0 DE EJEMPLO (100% FICTICIOS) + CSV 69-B de ejemplo
+   Para el botón "Probar con ejemplo".
+   ===================================================================== */
+const EJEMPLOS_XML = [
+`<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" Version="4.0" Serie="A" Folio="1001" Fecha="2026-02-10T10:30:00" Sello="FICTICIO==" FormaPago="03" NoCertificado="00001000000999999999" Certificado="FICTICIO==" SubTotal="1000.00" Moneda="MXN" Total="1160.00" TipoDeComprobante="I" MetodoPago="PUE" LugarExpedicion="06600" xsi:schemaLocation="http://www.sat.gob.mx/cfd/4 http://www.sat.gob.mx/sitio_internet/cfd/4/cfdv40.xsd">
+  <cfdi:Emisor Rfc="TAXS010101SX3" Nombre="PAPELERIA FICTICIA SA DE CV" RegimenFiscal="601"/>
+  <cfdi:Receptor Rfc="MORA010101RMA" Nombre="MARIA EJEMPLO MORA" DomicilioFiscalReceptor="06600" RegimenFiscalReceptor="605" UsoCFDI="G03"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto ClaveProdServ="60101500" NoIdentificacion="EQ-1" Cantidad="2" ClaveUnidad="H87" Unidad="Pieza" Descripcion="Cuaderno profesional 100 hojas" ValorUnitario="500.00" Importe="1000.00" ObjetoImp="02">
+      <cfdi:Impuestos>
+        <cfdi:Traslados>
+          <cfdi:Traslado Base="1000.00" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.160000" Importe="160.00"/>
+        </cfdi:Traslados>
+      </cfdi:Impuestos>
+    </cfdi:Concepto>
+  </cfdi:Conceptos>
+  <cfdi:Impuestos TotalImpuestosTrasladados="160.00">
+    <cfdi:Traslados>
+      <cfdi:Traslado Base="1000.00" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.160000" Importe="160.00"/>
+    </cfdi:Traslados>
+  </cfdi:Impuestos>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital Version="1.1" UUID="AAAAAAAA-0000-0000-0000-000000000001" FechaTimbrado="2026-02-10T10:31:05" RfcProvCertif="SAT970701NN3" SelloCFD="FICTICIO==" NoCertificadoSAT="00001000000999999999" SelloSAT="FICTICIO=="/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>`,
+`<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" Version="4.0" Serie="B" Folio="2002" Fecha="2026-03-05T09:00:00" Sello="FICTICIO==" FormaPago="01" NoCertificado="00001000000999999999" Certificado="FICTICIO==" SubTotal="1500.00" Moneda="MXN" Total="1500.00" TipoDeComprobante="I" MetodoPago="PUE" LugarExpedicion="06600" xsi:schemaLocation="http://www.sat.gob.mx/cfd/4 http://www.sat.gob.mx/sitio_internet/cfd/4/cfdv40.xsd">
+  <cfdi:Emisor Rfc="GYMX010101GYM" Nombre="GIMNASIO FICTICIO SC" RegimenFiscal="601"/>
+  <cfdi:Receptor Rfc="MORA010101RMA" Nombre="MARIA EJEMPLO MORA" DomicilioFiscalReceptor="06600" RegimenFiscalReceptor="605" UsoCFDI="S01"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto ClaveProdServ="90101500" Cantidad="1" ClaveUnidad="E48" Unidad="Servicio" Descripcion="Membresia mensual de gimnasio" ValorUnitario="1500.00" Importe="1500.00" ObjetoImp="01"/>
+  </cfdi:Conceptos>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital Version="1.1" UUID="BBBBBBBB-0000-0000-0000-000000000002" FechaTimbrado="2026-03-05T09:01:12" RfcProvCertif="SAT970701NN3" SelloCFD="FICTICIO==" NoCertificadoSAT="00001000000999999999" SelloSAT="FICTICIO=="/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>`];
+
+// Mini lista 69-B de ejemplo: marca el gimnasio ficticio como Presunto
+const EJEMPLO_69B = `"RFC","Nombre / Razón Social","Situación del contribuyente","Número y fecha de oficio global de presunción","Publicación SAT presuntos","SAT Publicación DOF","Número y fecha de oficio global de contribuyentes que desvirtuaron","Publicación SAT desvirtuados","SAT Publicación DOF desvirtuados","Número y fecha de oficio global de definitivos","Publicación SAT definitivos","SAT Publicación DOF definitivos","Número y fecha de oficio global de sentencia favorable","Publicación SAT sentencia favorable","SAT Publicación DOF sentencia favorable"
+"GYMX010101GYM","GIMNASIO FICTICIO SC","Presunto","","17/01/2026","","","","","","","","","",""`;
+
+/* =====================================================================
+   MÓDULO: REPORTES (exportación CSV y PDF)
+   ===================================================================== */
+const reportes = {
+  // Descarga genérica de un archivo generado en memoria
+  _blob(contenido, nombre, tipo) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([contenido], { type: tipo }));
+    a.download = nombre;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  },
+
+  exportarCSV() {
+    if (!estado.facturas.length) { alert("Primero procesa al menos una factura."); return; }
+    const cab = ["Archivo","Fecha","UUID","Emisor RFC","Emisor Nombre","Receptor RFC","UsoCFDI","FormaPago","MetodoPago","SubTotal","Total","Moneda","Clasificacion","Motivos","Estatus 69-B","Detalle 69-B"];
+    const filas = estado.facturas.map(f => [
+      f.cfdi.nombreArchivo, f.cfdi.fecha, f.cfdi.uuid,
+      f.cfdi.emisor.rfc, f.cfdi.emisor.nombre, f.cfdi.receptor.rfc,
+      f.cfdi.receptor.usoCFDI, f.cfdi.formaPago, f.cfdi.metodoPago,
+      f.cfdi.subTotal.toFixed(2), f.cfdi.total.toFixed(2), f.cfdi.moneda,
+      CLASIFICACIONES[f.clasificacion].etiqueta,
+      f.motivos.join(" | "),
+      ESTADOS_69B[f.estatus69B.clave].etiqueta,
+      f.estatus69B.detalle
+    ]);
+    // BOM (\uFEFF) para que Excel abra los acentos correctamente
+    const csv = "﻿" + [cab, ...filas]
+      .map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(","))
+      .join("\r\n");
+    this._blob(csv, "taxshield_resultados.csv", "text/csv;charset=utf-8");
+  },
+
+  descargarPDF() {
+    if (!estado.facturas.length) { alert("Primero procesa al menos una factura."); return; }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: "pt" });
+    const r = resumen();
+
+    doc.setFontSize(16); doc.setTextColor(15, 23, 42);
+    doc.text("TaxShield – Pre-auditoría CFDI 4.0", 40, 50);
+    doc.setFontSize(9); doc.setTextColor(90);
+    doc.text(`Generado: ${new Date().toLocaleString("es-MX")}    RFC contribuyente: ${estado.rfcContribuyente || "—"}    Lista 69-B: ${validador69B.fechaCarga ? validador69B.fechaCarga.toLocaleDateString("es-MX") : "sin cargar"}`, 40, 68);
+    doc.text(`Facturas: ${r.total}    Monto en riesgo: ${fmt(r.riesgo)}    Monto deducible: ${fmt(r.deducible)}    Alertas 69-B: ${r.alertas69B}`, 40, 82);
+
+    doc.autoTable({
+      startY: 95,
+      head: [["Fecha", "UUID", "Emisor", "Receptor", "Uso", "Forma", "Total", "Clasificación", "69-B"]],
+      body: estado.facturas.map(f => [
+        fechaCorta(f.cfdi.fecha),
+        f.cfdi.uuid ? f.cfdi.uuid.slice(0, 8) + "…" : "—",
+        f.cfdi.emisor.rfc,
+        f.cfdi.receptor.rfc,
+        f.cfdi.receptor.usoCFDI,
+        f.cfdi.formaPago,
+        fmt(f.cfdi.total),
+        CLASIFICACIONES[f.clasificacion].etiqueta,
+        ESTADOS_69B[f.estatus69B.clave].etiqueta
+      ]),
+      styles: { fontSize: 7, cellPadding: 3 },
+      headStyles: { fillColor: [15, 23, 42] }
+    });
+
+    doc.setFontSize(8); doc.setTextColor(120);
+    doc.text("Pre-auditoría orientativa. No sustituye la opinión de un contador público.", 40, doc.lastAutoTable.finalY + 26);
+    doc.save("TaxShield_reporte.pdf");
+  }
+};
+
+/* =====================================================================
+   MÓDULO: UI (renderizado, filtros, ordenamiento y eventos)
+   ===================================================================== */
+
+// ---- Helpers de formato y seguridad ----
+const fmt = n => new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(n || 0);
+const fechaCorta = iso => { const d = new Date(iso); return isNaN(d) ? "—" : d.toLocaleDateString("es-MX"); };
+// Escapa HTML para evitar inyección con datos de XML del usuario
+const esc = s => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const COLOR_BADGE = {
+  green: "bg-green-100 text-green-800 border-green-300", teal: "bg-teal-100 text-teal-800 border-teal-300",
+  blue: "bg-blue-100 text-blue-800 border-blue-300", red: "bg-red-100 text-red-800 border-red-300",
+  yellow: "bg-yellow-100 text-yellow-800 border-yellow-300", gray: "bg-gray-100 text-gray-700 border-gray-300"
+};
+const badge = (texto, color) =>
+  `<span class="inline-block text-xs font-medium border rounded-full px-2 py-0.5 ${COLOR_BADGE[color] || COLOR_BADGE.gray}">${esc(texto)}</span>`;
+const NOMBRE_IMPUESTO = { "001": "ISR", "002": "IVA", "003": "IEPS" };
+const NOMBRE_FORMA_PAGO = { "01": "Efectivo", "02": "Cheque", "03": "Transferencia", "04": "Tarjeta de crédito", "28": "Tarjeta de débito", "99": "Por definir" };
+
+// ---- Resumen numérico ----
+function resumen() {
+  let riesgo = 0, deducible = 0, alertas69B = 0;
+  for (const f of estado.facturas) {
+    if (f.clasificacion === "riesgo") riesgo += f.cfdi.total;
+    if (f.clasificacion === "autorizado" || f.clasificacion === "personal") deducible += f.cfdi.total;
+    if (f.estatus69B && (f.estatus69B.clave === "ALERTA" || f.estatus69B.clave === "CRITICO")) alertas69B++;
+  }
+  return { total: estado.facturas.length, riesgo, deducible, alertas69B };
+}
+
+// ---- Pintado de las tarjetas resumen ----
+function renderResumen() {
+  const r = resumen();
+  document.getElementById("seccionResumen").classList.toggle("hidden", r.total === 0);
+  document.getElementById("cardTotal").textContent = r.total;
+  document.getElementById("cardRiesgo").textContent = fmt(r.riesgo);
+  document.getElementById("cardDeducible").textContent = fmt(r.deducible);
+  document.getElementById("card69B").textContent = r.alertas69B;
+}
+
+// ---- Pintado de la tabla (filtros + ordenamiento) ----
+function facturasFiltradas() {
+  const clave = document.getElementById("filtroClas").value;
+  const txt = document.getElementById("filtroTexto").value.trim().toUpperCase();
+  let lista = estado.facturas.filter(f =>
+    (clave === "todas" || f.clasificacion === clave) &&
+    (!txt || [f.cfdi.emisor.rfc, f.cfdi.emisor.nombre, f.cfdi.receptor.rfc, f.cfdi.uuid].some(x => (x || "").toUpperCase().includes(txt)))
+  );
+  const { campo, dir } = estado.orden;
+  const sev = { CRITICO: 3, ALERTA: 2, LIMPIO_HIST: 1, LIMPIO: 0 };
+  const valor = f => ({
+    fecha: new Date(f.cfdi.fecha).getTime() || 0,
+    emisor: f.cfdi.emisor.rfc, receptor: f.cfdi.receptor.rfc,
+    total: f.cfdi.total,
+    clasificacion: Object.keys(CLASIFICACIONES).indexOf(f.clasificacion),
+    estatus69B: sev[f.estatus69B.clave] ?? 0
+  })[campo];
+  return lista.sort((a, b) => { const va = valor(a), vb = valor(b); return (va > vb ? 1 : va < vb ? -1 : 0) * dir; });
+}
+
+function renderTabla() {
+  const cuerpo = document.getElementById("cuerpoTabla");
+  const lista = facturasFiltradas();
+  document.getElementById("tablaVacia").classList.toggle("hidden", lista.length > 0);
+
+  cuerpo.innerHTML = lista.map((f, i) => {
+    const c = CLASIFICACIONES[f.clasificacion];
+    const e = ESTADOS_69B[f.estatus69B.clave];
+    return `
+    <tr class="border-t border-slate-100 hover:bg-slate-50">
+      <td class="px-3 py-2 whitespace-nowrap">${fechaCorta(f.cfdi.fecha)}</td>
+      <td class="px-3 py-2"><div class="font-medium">${esc(f.cfdi.emisor.rfc)}</div><div class="text-xs text-slate-400 truncate max-w-[160px]">${esc(f.cfdi.emisor.nombre)}</div></td>
+      <td class="px-3 py-2 font-mono text-xs">${esc(f.cfdi.receptor.rfc)}</td>
+      <td class="px-3 py-2 text-right whitespace-nowrap">${fmt(f.cfdi.total)}</td>
+      <td class="px-3 py-2">${badge(c.etiqueta, c.color)}</td>
+      <td class="px-3 py-2">${badge(e.etiqueta, e.color)}</td>
+      <td class="px-3 py-2 text-right"><button data-detalle="${i}" class="text-blue-600 text-xs font-medium hover:underline">Detalle ▾</button></td>
+    </tr>
+    <tr class="fila-detalle hidden" id="detalle-${i}"><td colspan="7">${detalleHTML(f)}</td></tr>`;
+  }).join("");
+
+  // Engancha los botones de detalle expandible
+  cuerpo.querySelectorAll("[data-detalle]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const fila = document.getElementById("detalle-" + btn.dataset.detalle);
+      fila.classList.toggle("hidden");
+      btn.textContent = fila.classList.contains("hidden") ? "Detalle ▾" : "Detalle ▴";
+    });
+  });
+}
+
+// ---- Contenido del detalle expandible por factura ----
+function detalleHTML(f) {
+  const c = f.cfdi;
+  const imp = t => `${NOMBRE_IMPUESTO[t.impuesto] || t.impuesto} ${(parseFloat(t.tasaOCuota) * 100).toFixed(0)}% — ${fmt(t.importe)}`;
+  return `
+  <div class="bg-slate-50 p-4 text-xs space-y-3">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div class="space-y-1">
+        <p class="font-semibold text-slate-700">📄 Comprobante</p>
+        <p><span class="text-slate-400">Archivo:</span> ${esc(c.nombreArchivo)}</p>
+        <p><span class="text-slate-400">Versión:</span> ${esc(c.version)} · <span class="text-slate-400">Tipo:</span> ${esc(c.tipoDeComprobante)}</p>
+        <p><span class="text-slate-400">FormaPago:</span> ${esc(c.formaPago)} (${NOMBRE_FORMA_PAGO[c.formaPago] || "otra"}) · <span class="text-slate-400">Método:</span> ${esc(c.metodoPago)}</p>
+        <p><span class="text-slate-400">Moneda:</span> ${esc(c.moneda)} · <span class="text-slate-400">SubTotal:</span> ${fmt(c.subTotal)}</p>
+        <p class="break-all"><span class="text-slate-400">UUID:</span> ${esc(c.uuid || "—")}</p>
+        <p><span class="text-slate-400">Timbrado:</span> ${esc(c.fechaTimbrado || "—")}</p>
+      </div>
+      <div class="space-y-1">
+        <p class="font-semibold text-slate-700">🏢 Emisor</p>
+        <p class="font-mono">${esc(c.emisor.rfc)}</p>
+        <p>${esc(c.emisor.nombre)}</p>
+        <p><span class="text-slate-400">Régimen:</span> ${esc(c.emisor.regimenFiscal)}</p>
+        <p class="font-semibold text-slate-700 pt-2">👤 Receptor</p>
+        <p class="font-mono">${esc(c.receptor.rfc)}</p>
+        <p>${esc(c.receptor.nombre)}</p>
+        <p><span class="text-slate-400">UsoCFDI:</span> ${esc(c.receptor.usoCFDI)} · <span class="text-slate-400">Régimen:</span> ${esc(c.receptor.regimenFiscal)}</p>
+      </div>
+      <div class="space-y-1">
+        <p class="font-semibold text-slate-700">✅ Validaciones</p>
+        ${c.validaciones.map(v => `<p>${v.ok ? "✔️" : "⚠️"} ${esc(v.texto)}</p>`).join("")}
+        <p class="font-semibold text-slate-700 pt-2">🧭 Motivos de clasificación</p>
+        ${f.motivos.map(m => `<p>• ${esc(m)}</p>`).join("")}
+      </div>
+    </div>
+    <div>
+      <p class="font-semibold text-slate-700 mb-1">🧾 Conceptos</p>
+      <table class="min-w-full border border-slate-200">
+        <thead class="bg-slate-100"><tr><th class="px-2 py-1 text-left font-medium">ClaveProdServ</th><th class="px-2 py-1 text-left font-medium">Descripción</th><th class="px-2 py-1 text-right font-medium">Importe</th><th class="px-2 py-1 text-left font-medium">ObjetoImp</th></tr></thead>
+        <tbody>${c.conceptos.map(x => `<tr class="border-t border-slate-200"><td class="px-2 py-1">${esc(x.claveProdServ)}</td><td class="px-2 py-1">${esc(x.descripcion)}</td><td class="px-2 py-1 text-right">${fmt(x.importe)}</td><td class="px-2 py-1">${esc(x.objetoImp)}</td></tr>`).join("")}</tbody>
+      </table>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div><p class="font-semibold text-slate-700 mb-1">➕ Traslados</p>
+        ${c.traslados.length ? c.traslados.map(t => `<p>• ${esc(imp(t))}</p>`).join("") : "<p class='text-slate-400'>Sin traslados</p>"}</div>
+      <div><p class="font-semibold text-slate-700 mb-1">➖ Retenciones</p>
+        ${c.retenciones.length ? c.retenciones.map(r => `<p>• ${esc(imp(r))}</p>`).join("") : "<p class='text-slate-400'>Sin retenciones</p>"}</div>
+    </div>
+    ${f.ia ? (f.ia.error
+      ? `<div class="border border-amber-200 bg-amber-50 rounded-lg p-2"><p class="font-semibold text-amber-800">🤖 IA: error de consulta</p><p class="text-amber-700">${esc(f.ia.error)}</p></div>`
+      : `<div class="border border-blue-200 bg-blue-50 rounded-lg p-2"><p class="font-semibold text-blue-800">🤖 Sugerencia de IA (${esc(f.ia.data.clasificacion)} · confianza ${esc(String(f.ia.data.confianza))})</p><p>${esc(f.ia.data.justificacion)}</p><p class="text-blue-700">Fundamento: ${esc(f.ia.data.fundamento)}</p></div>`) : ""}
+  </div>`;
+}
+
+// ---- Pintado de errores (XML inválidos: se listan sin detener el proceso) ----
+function renderErrores() {
+  const hay = estado.errores.length > 0;
+  document.getElementById("cajaErrores").classList.toggle("hidden", !hay);
+  document.getElementById("listaErrores").innerHTML =
+    estado.errores.map(e => `<li><strong>${esc(e.nombreArchivo)}</strong>: ${esc(e.error)}</li>`).join("");
+}
+
+function renderTodo() {
+  const hay = estado.facturas.length > 0 || estado.errores.length > 0;
+  document.getElementById("seccionResultados").classList.toggle("hidden", !hay);
+  renderResumen(); renderTabla(); renderErrores();
+}
+
+// ---- Estado de la lista 69-B en pantalla ----
+function pintarListaEstado() {
+  const el = document.getElementById("lista69Estado");
+  const adv = document.getElementById("advertenciaLista");
+  if (validador69B.fechaCarga) {
+    el.textContent = `Lista actualizada al: ${validador69B.fechaCarga.toLocaleDateString("es-MX")} · ${validador69B.mapa.size.toLocaleString("es-MX")} RFC registrados.`;
+    const dias = (Date.now() - validador69B.fechaCarga.getTime()) / 86400000;
+    adv.classList.toggle("hidden", dias <= CONFIG.reglas.diasAdvertenciaLista);
+  } else {
+    el.textContent = "No se ha cargado ninguna lista.";
+    adv.classList.add("hidden");
+  }
+}
+
+function pintarIAEstado(txt) {
+  const el = document.getElementById("iaEstado");
+  if (txt) { el.textContent = txt; return; }
+  el.textContent = ia.getKey()
+    ? "API key guardada en esta sesión. Se consulta solo la descripción del concepto."
+    : "Sin API key: la app funciona completa sin IA.";
+}
+
+/* =====================================================================
+   FLUJO PRINCIPAL DE PROCESAMIENTO
+   ===================================================================== */
+
+// Agrega un XML (texto) al lote; los inválidos se listan como Error y NO detienen el proceso
+function agregarXml(texto, nombre) {
+  const r = parser.extraer(texto, nombre);
+  if (!r.ok) { estado.errores.push({ nombreArchivo: nombre, error: r.error }); return; }
+  if (r.cfdi.uuid) {
+    if (estado.uuids.has(r.cfdi.uuid)) {
+      const v = r.cfdi.validaciones.find(x => x.clave === "uuid_dup");
+      v.ok = false; v.texto = "UUID DUPLICADO (ya cargado)";
+    }
+    estado.uuids.add(r.cfdi.uuid);
+  }
+  estado.facturas.push({ cfdi: r.cfdi });
+}
+
+// Procesa un arreglo de objetos File
+async function procesarArchivos(archivos) {
+  for (const file of archivos) {
+    const nombre = file.name.toLowerCase();
+    try {
+      if (nombre.endsWith(".zip")) {
+        const zip = await JSZip.loadAsync(file);
+        const entradas = Object.values(zip.files).filter(x => !x.dir && x.name.toLowerCase().endsWith(".xml"));
+        if (!entradas.length) estado.errores.push({ nombreArchivo: file.name, error: "El ZIP no contiene archivos .xml" });
+        for (const e of entradas) agregarXml(await e.async("string"), e.name);
+      } else if (nombre.endsWith(".xml")) {
+        agregarXml(await file.text(), file.name);
+      } else {
+        estado.errores.push({ nombreArchivo: file.name, error: "Formato no soportado (solo .xml o .zip)" });
+      }
+    } catch (e) {
+      estado.errores.push({ nombreArchivo: file.name, error: "No se pudo leer: " + e.message });
+    }
+  }
+  await conciliar();
+}
+
+// Cruza los CFDI cargados: 69-B → reglas → IA opcional → render
+async function conciliar() {
+  if (!estado.facturas.length) { renderTodo(); return; }
+  estado.rfcContribuyente = document.getElementById("rfcContribuyente").value.trim().toUpperCase();
+
+  // UUIDs referenciados por comprobantes tipo P (complemento de pago)
+  const uuidsPagados = new Set();
+  for (const f of estado.facturas) {
+    if (f.cfdi.tipoDeComprobante === "P") f.cfdi.relacionados.forEach(u => uuidsPagados.add(u.toUpperCase()));
+  }
+
+  for (const f of estado.facturas) {
+    f.estatus69B = validador69B.estatus(f.cfdi.emisor.rfc, f.cfdi.fecha);
+    const r = motorReglas.clasificar(f.cfdi, {
+      rfcContribuyente: estado.rfcContribuyente,
+      pagado: uuidsPagados.has(f.cfdi.uuid),
+      estatus69B: f.estatus69B
+    });
+    f.clasificacion = r.clave;
+    f.motivos = r.motivos;
+    // UUID duplicado fuerza revisión humana
+    if (f.cfdi.validaciones.some(v => v.clave === "uuid_dup" && !v.ok)) {
+      f.clasificacion = "revisar";
+      f.motivos.unshift("UUID duplicado dentro de la carga: posible doble captura.");
+    }
+  }
+
+  await ia.aplicar(); // sin key es un no-op; los errores de red no rompen la app
+  renderTodo();
+  contador.registrar();
+  contador.pintar();
+}
+
+// Botón "Probar con ejemplo": procesa los XML ficticios y carga la lista 69-B de ejemplo
+async function probarEjemplo() {
+  estado.facturas = []; estado.errores = []; estado.uuids.clear();
+  if (!validador69B.fechaCarga) {
+    await validador69B.cargarDesdeTexto(EJEMPLO_69B);
+    pintarListaEstado();
+  }
+  EJEMPLOS_XML.forEach((xml, i) => agregarXml(xml, `ejemplo-${i + 1}.xml`));
+  await conciliar();
+}
+
+// "Borrar todos los datos": IndexedDB + sessionStorage + localStorage + estado en memoria
+async function borrarTodoDatos() {
+  if (!confirm("¿Borrar todos los datos (lista 69-B, API key, contador y resultados)?")) return;
+  await almacen.borrarTodo();
+  sessionStorage.removeItem(ia.claveStorage);
+  contador.restablecer();
+  estado.facturas = []; estado.errores = []; estado.uuids.clear();
+  validador69B.mapa.clear(); validador69B.fechaCarga = null;
+  document.getElementById("iaKey").value = "";
+  renderTodo(); pintarListaEstado(); pintarIAEstado(); contador.pintar();
+}
+
+/* =====================================================================
+   INICIALIZACIÓN
+   ===================================================================== */
+function engancharEventos() {
+  // Lista 69-B
+  document.getElementById("btnLista69").addEventListener("click", () => document.getElementById("inputLista69").click());
+  document.getElementById("inputLista69").addEventListener("change", async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const n = await validador69B.cargarDesdeTexto(await file.text());
+      pintarListaEstado();
+      alert(`Lista 69-B cargada: ${n.toLocaleString("es-MX")} RFC registrados.`);
+    } catch (err) { alert("Error al leer el CSV: " + err.message); }
+    e.target.value = "";
+  });
+  document.getElementById("btnListaEjemplo").addEventListener("click", async () => {
+    await validador69B.cargarDesdeTexto(EJEMPLO_69B);
+    pintarListaEstado();
+  });
+
+  // IA
+  document.getElementById("btnGuardarKey").addEventListener("click", () => {
+    ia.setKey(document.getElementById("iaKey").value);
+    pintarIAEstado();
+  });
+
+  // Zona drag & drop
+  const zona = document.getElementById("zonaDrop");
+  const input = document.getElementById("inputArchivos");
+  zona.addEventListener("click", () => input.click());
+  ["dragenter", "dragover"].forEach(ev => zona.addEventListener(ev, e => { e.preventDefault(); zona.classList.add("activa"); }));
+  ["dragleave", "drop"].forEach(ev => zona.addEventListener(ev, e => { e.preventDefault(); zona.classList.remove("activa"); }));
+  zona.addEventListener("drop", e => procesarArchivos([...e.dataTransfer.files]));
+  input.addEventListener("change", e => { procesarArchivos([...e.target.files]); e.target.value = ""; });
+
+  // Ejemplo y borrado
+  document.getElementById("btnEjemplo").addEventListener("click", probarEjemplo);
+  document.getElementById("btnBorrar").addEventListener("click", borrarTodoDatos);
+
+  // Filtros, ordenamiento y reportes
+  document.getElementById("filtroClas").addEventListener("change", renderTabla);
+  document.getElementById("filtroTexto").addEventListener("input", renderTabla);
+  document.querySelectorAll("th[data-campo]").forEach(th => th.addEventListener("click", () => {
+    const campo = th.dataset.campo;
+    estado.orden.dir = estado.orden.campo === campo ? estado.orden.dir * -1 : 1;
+    estado.orden.campo = campo;
+    renderTabla();
+  }));
+  document.getElementById("btnCSV").addEventListener("click", () => reportes.exportarCSV());
+  document.getElementById("btnPDF").addEventListener("click", () => reportes.descargarPDF());
+}
+
+function poblarFiltroClas() {
+  const sel = document.getElementById("filtroClas");
+  for (const [k, v] of Object.entries(CLASIFICACIONES)) {
+    const op = document.createElement("option");
+    op.value = k; op.textContent = v.etiqueta;
+    sel.appendChild(op);
+  }
+}
+
+async function init() {
+  document.getElementById("rfcContribuyente").value = "MORA010101RMA"; // RFC ficticio del ejemplo
+  poblarFiltroClas();
+  engancharEventos();
+  contador.pintar();
+  pintarIAEstado();
+  await almacen.abrir();
+  await validador69B.restaurar(); // recupera la lista 69-B guardada previamente
+  pintarListaEstado();
+}
+
+document.addEventListener("DOMContentLoaded", init);
+</script>
+</body>
+</html>
